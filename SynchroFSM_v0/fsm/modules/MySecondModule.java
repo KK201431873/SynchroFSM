@@ -23,7 +23,8 @@ public class MySecondModule extends Module {
     @Override
     public void onStateChanged(States state) throws InterruptedException {
         if (state == States.STATE_B) {
-            System.out.println("State is B");
+            // Wait a second and switch the state to A
+            System.out.println(name+" State is B");
             Thread.sleep(1000);
             switchGlobalState(States.STATE_A);
         }

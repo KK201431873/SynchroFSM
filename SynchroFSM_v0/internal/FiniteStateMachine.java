@@ -4,10 +4,10 @@ import fsm.Messages;
 import fsm.States;
 
 public class FiniteStateMachine {
-    private static FiniteStateMachine instance;
-    private States currentState;
-    private boolean running = false;
-    private double startTime = 0;
+    private volatile static FiniteStateMachine instance;
+    private volatile States currentState;
+    private volatile boolean running = false;
+    private volatile double startTime = 0;
 
     private FiniteStateMachine() {
         this.currentState = States.STATE_A; // Default initial state
