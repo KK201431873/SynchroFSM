@@ -18,7 +18,7 @@ public class Main {
 //            Thread.sleep(500);
 //        }
 
-        double disp = 18;
+        double disp = 3;
         double v0 = -6;
         double vm = 6;
         double am1 = 6;
@@ -35,6 +35,7 @@ public class Main {
 
         double duration = mp.getDuration();
         double dt = 0.12;
+        System.out.println("duration: "+duration);
 
         double negativeBuffer = 8*vm;
         for (double t = 0; t < duration+1; t += dt) {
