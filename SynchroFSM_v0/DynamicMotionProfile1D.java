@@ -2,11 +2,11 @@
 /**
  * Calculates position based on elapsed time from a velocity curve defined by displacement, initial velocity, max velocity, max acceleration, and max deceleration.
  */
-public class DynamicMotionProfile1D {
+public class DynamicMotionProfile1D  {
 
-    private final double distance, sign;
+    private double distance, sign, minDuration;
 
-    private final double v_max, a_max_1, a_max_2;
+    private double v_max, a_max_1, a_max_2;
     private double t1, t2, t3, t4, T;
     private final double v0;
     private double v1, v2;
@@ -32,6 +32,7 @@ public class DynamicMotionProfile1D {
         this.v0 = bound(v0 * (this.sign!=0 ? this.sign : 1), -this.v_max, this.v_max);
         init();
         this.timeSpan = new TimeSpan(startTime, startTime+T);
+        this.minDuration = this.timeSpan.getDuration();
     }
 
     /**
@@ -55,8 +56,115 @@ public class DynamicMotionProfile1D {
         return timeSpan.getDuration();
     }
 
+    /**
+     * @return the minimum time needed to reach the target displacement value.
+     */
+    public double getMinDuration() {
+        return minDuration;
+    }
+
+    /**
+     * @param newTimeSpan another timeSpan with a duration greater than minDuration
+     */
+    public void setTimeSpan(TimeSpan newTimeSpan) {
+        /// catch error for when time < min_time
+        if (newTimeSpan.getDuration() - minDuration < -1e-3) {
+            throw new RuntimeException(
+                    String.format("TimeSpan duration %s is less than the minimum needed time %s.",
+                            newTimeSpan.getDuration(),
+                            minDuration
+                    )
+            );
+        }
+
+        // floating point error correction
+        if (newTimeSpan.getDuration() < minDuration) {
+            this.timeSpan = new TimeSpan(newTimeSpan.getStartTime(), newTimeSpan.getStartTime() + minDuration);
+            return;
+        }
+
+        // if the curve is unstretchable
+        if (v0>0 && distance <= v0*v0/(2*a_max_1)) {
+            this.timeSpan = newTimeSpan;
+            return;
+        }
+
+
+        //// Two cases based on tau, which is when v0=v1 (_p means prime)
+        double tau = v0/(2*a_max_2);
+        if (v0 != 0) tau += distance/v0 + v2*v2/(v0*a_max_2);
+        else tau = Double.POSITIVE_INFINITY;
+        double T_p = newTimeSpan.getDuration();
+
+        // Case 1: Use quadratic formula
+        double t1_p, t2_p, t3_p, t4_p;
+        double D1_p, D2_p, D3_p, D4_p;
+        double v1_p;
+        double a_max_1_p;
+        if (v0<=0 || (v0>0 && T_p<=tau)) {
+            double a = (a_max_1+a_max_2)/(2*a_max_1*a_max_2);
+            double b = -(T_p + v0/a_max_1);
+            double c = distance + v0*v0/(2*a_max_1);
+            // velocities
+            v1_p = (-b-Math.sqrt(b*b-4*a*c)) / (2*a);
+            // times
+            t1_p = (v1_p-v0)/a_max_1;
+            t2_p = T_p - (T-t3) - v1_p/a_max_2;
+            t3_p = t2_p + v1_p/a_max_2;
+            t4_p = t3_p + (t4-t3);
+            // distances
+            D1_p = (v1_p*v1_p-v0*v0)/(2*a_max_1);
+            D2_p = distance + v2*v2/a_max_2 - v1_p*v1_p/(2*a_max_2);
+            D3_p = D2_p + v1_p*v1_p/(2*a_max_2);
+            D4_p = D3_p - v2*v2/(2*a_max_2);
+            // accelerations
+            a_max_1_p = a_max_1;
+        }
+
+        // Case 2: when 0<v0<v1
+        else {
+            // velocities
+            v1_p = (2*distance*a_max_2-v0*v0+2*v2*v2) / (2*T_p*a_max_2-2*v0);
+            // times
+            t1_p = (v0-v1_p)/a_max_2;
+            t2_p = t1_p + T_p - v0/a_max_2;
+            t3_p = t2_p + v1_p/a_max_2;
+            t4_p = t3_p + (T-t4);
+            // distances
+            D1_p = (v0*v0-v1_p*v1_p)/(2*a_max_2);
+            D2_p = distance + v2*v2/a_max_2 - v1_p*v1_p/(2*a_max_2);
+            D3_p = D2_p + v1_p*v1_p/(2*a_max_2);
+            D4_p = D3_p - v2*v2/(2*a_max_2);
+            // accelerations
+            a_max_1_p = -a_max_2;
+        }
+
+        //// replace current values
+        // velocities
+        this.v1 = v1_p;
+        // times
+        this.t1 = t1_p;
+        this.t2 = t2_p;
+        this.t3 = t3_p;
+        this.t4 = t4_p;
+        this.T = T_p;
+        // distances
+        this.D1 = D1_p;
+        this.D2 = D2_p;
+        this.D3 = D3_p;
+        this.D4 = D4_p;
+        // accelerations
+        this.a_max_1 = a_max_1_p;
+        // timeSpan
+        this.timeSpan = newTimeSpan;
+
+    }
+
     public double getDisplacement(double elapsedTime) {
-        elapsedTime = bound(elapsedTime-getStartTime(), 0, getDuration());
+        // Zero displacement if T=0.
+        if (T==0) return 0;
+
+        elapsedTime = bound(elapsedTime-getStartTime(), 0, T);
 
         double displacement;
 
@@ -96,7 +204,12 @@ public class DynamicMotionProfile1D {
     }
 
     public double getVelocity(double elapsedTime) {
-        elapsedTime = bound(elapsedTime-getStartTime(), 0, getDuration());
+        // Zero velocity if T=0.
+        if (T==0) return 0;
+        // Zero velocity if outside of TimeSpan.
+        if (elapsedTime-getStartTime() < 0 || T < elapsedTime-getStartTime()) return 0;
+
+        elapsedTime = bound(elapsedTime-getStartTime(), 0, T);
 
         double velocity;
 
@@ -131,10 +244,12 @@ public class DynamicMotionProfile1D {
     }
 
     public double getAcceleration(double elapsedTime) {
+        // Zero acceleration if T=0.
+        if (T==0) return 0;
         // Zero acceleration if outside of TimeSpan.
-        if (elapsedTime-getStartTime() < 0 || getDuration() < elapsedTime-getStartTime()) return 0;
+        if (elapsedTime-getStartTime() < 0 || T < elapsedTime-getStartTime()) return 0;
 
-        elapsedTime = bound(elapsedTime-getStartTime(), 0, getDuration());
+        elapsedTime = bound(elapsedTime-getStartTime(), 0, T);
 
         double acceleration;
 
@@ -186,7 +301,6 @@ public class DynamicMotionProfile1D {
             this.D2 = this.D1 + 0;
             this.D3 = this.D2 + v0*v0/(2*a_max_2);
             this.D4 = this.D3 + 0;
-            System.out.println("c1");
         }
 
         // Case 2
@@ -206,7 +320,6 @@ public class DynamicMotionProfile1D {
             this.D2 = this.D1 + 0;
             this.D3 = this.D2 + v1*v1/(2*a_max_2);
             this.D4 = this.D3 + 0;
-            System.out.println("c2");
         }
 
         // Case 3
@@ -226,7 +339,6 @@ public class DynamicMotionProfile1D {
             t3 = t2 + (v_max/a_max_2);
             t4 = t3;
             T = t4;
-            System.out.println("c3");
         }
 
         // Case 4
@@ -246,7 +358,6 @@ public class DynamicMotionProfile1D {
             t3 = t2 + v0/a_max_2;
             t4 = t3 + Math.sqrt((this.D3-distance)/a_max_2);
             T = 2*t4 - t3;
-            System.out.println("c4");
         }
     }
 
